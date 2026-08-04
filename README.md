@@ -209,28 +209,39 @@ settings are copied across from ZHA as part of the migration. Only the Inovelli
 VZM31-SN is mapped, that being the bulk of this migration; any other model is
 reported as having no settings map rather than quietly skipped.
 
-The map lives in `settings.py`, keyed by the ZHA **attribute** name taken from
-the tail of the entity's `unique_id`. It is deliberately not keyed by
-entity_id, because on a real VZM31-SN the entity ids cannot be trusted: three
-of them are literally called `..._none`, and the entity whose id ends
-`_button_delay` is actually the local dimming up speed, mislabelled by a ZHA
-quirk. The unique_id tail is the attribute the device itself reports.
+Most of it maps itself. ZHA calls an attribute `dimming_speed_up_remote` where
+Zigbee2MQTT calls the same thing `dimmingSpeedUpRemote`, so the default rule is
+to camelCase the ZHA attribute and look for that property in the target
+device's own `exposes`. Only names that genuinely disagree are declared, in
+`ALIASES`.
 
-Values are not blindly copied. Each entry says how to convert:
+The conversion is worked out from the same `exposes`: a numeric property takes
+the number, an enum that already contains the ZHA value takes it as is, an enum
+given a number treats it as an index into its values, and an enum given
+`on`/`off` is a boolean. A boolean is only inferred when the first enum value
+is unambiguously the off state (`Disabled`, `No`, `Off`); otherwise it must be
+declared, because a guessed polarity is silently wrong rather than loudly
+wrong.
 
-| Rule | Meaning |
-| --- | --- |
-| `number` | copy across as an integer |
-| `text` | copy across as a string, the wording already matches |
-| `index` | the ZHA number is an index into the Z2M enum's values |
-| `{...}` | an explicit ZHA value to Z2M value translation |
+`TRANSLATIONS` may list several candidates for a value, and the first one the
+device actually offers wins. That is how one table serves every model: a switch
+and a fan both call the setting `output_mode`, and `OnOff` resolves to `On/Off`
+on the switch and `Exhaust Fan (On/Off)` on the fan.
 
-The `index` and translation rules matter more than they look. Z2M's
-`buttonDelay` is the enum `0ms`..`900ms`, so ZHA's `5` means `500ms`, not `5`.
-`onOffLedMode` is `All`/`One`, so a raw boolean copy is rejected outright. And
-both `relayClick` and `doubleTapClearNotifications` are phrased as "disable X"
-in ZHA while Z2M names the parameter rather than the effect, so the polarity
-has to be read off the actual Z2M value text.
+The map is keyed by the ZHA **attribute** name taken from the tail of the
+entity's `unique_id`, not by entity_id, because on a real VZM31-SN the entity
+ids cannot be trusted: three are literally called `..._none`, and the entity
+whose id ends `_button_delay` is actually the local dimming up speed,
+mislabelled by a ZHA quirk.
+
+### Adding a model
+
+Add its name to `SUPPORTED_MODELS` and run a dry run. Anything that did not map
+itself is reported by name with the reason, and only those need an entry in
+`ALIASES`, `TRANSLATIONS` or `UNMAPPED`. The model gate exists so an untried
+device type is reported rather than blindly written to.
+
+Supported today: Inovelli `VZM31-SN` (switch/dimmer) and `VZM35-SN` (fan).
 
 Every planned write is checked against the target device's own `exposes`
 definition before it is sent, so an out of range number, an enum value that
