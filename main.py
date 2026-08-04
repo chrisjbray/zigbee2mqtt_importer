@@ -395,6 +395,7 @@ def execute(plan, workdir, run_id, dry_run):
     """
     prefix = "[DRY RUN] would " if dry_run else ""
     zha_info = plan["zha"]
+    address = f"0x{plan['ieee']}"
     logger.info(
         "%smigrate %s: ZHA %r -> Z2M %r (currently %r)",
         prefix,
@@ -413,7 +414,7 @@ def execute(plan, workdir, run_id, dry_run):
             "%srename in Z2M: %r -> %r (temporary)", prefix, plan["z2m_name"], plan["intermediate_name"]
         )
         if not dry_run:
-            z2m.rename(plan["z2m_name"], plan["intermediate_name"])
+            z2m.rename(plan["z2m_name"], plan["intermediate_name"], ieee_address=address)
 
     # Free the entity id namespace before claiming it for the new entities.
     for old, _new, _target in plan["renames"]:
@@ -459,7 +460,7 @@ def execute(plan, workdir, run_id, dry_run):
             "%srename in Z2M: %r -> %r (canonical)", prefix, plan["intermediate_name"], plan["canonical"]
         )
         if not dry_run:
-            z2m.rename(plan["intermediate_name"], plan["canonical"])
+            z2m.rename(plan["intermediate_name"], plan["canonical"], ieee_address=address)
 
     # (g) Copy the old device's settings across.
     for attribute, value in sorted(plan["settings_writes"].items()):

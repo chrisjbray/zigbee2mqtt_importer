@@ -150,7 +150,15 @@ def publish_retained(messages, timeout=10):
         client.disconnect()
 
 
-def rename(old_name, new_name, timeout=20):
+def already_named(ieee_address, name, timeout=15):
+    """True if the device with this IEEE already goes by this friendly_name."""
+    for device in devices(timeout):
+        if device.get("ieee_address") == ieee_address:
+            return device.get("friendly_name") == name
+    return False
+
+
+def rename(old_name, new_name, timeout=20, ieee_address=None):
     """Rename a device's friendly_name, verified against the bridge response.
 
     A rename to the name the device already has is not an error, it is nothing
@@ -165,12 +173,25 @@ def rename(old_name, new_name, timeout=20):
     if old_name == new_name:
         return None
 
-    response = _await_message(
-        RENAME_RESPONSE_TOPIC,
-        timeout,
-        publish=(RENAME_REQUEST_TOPIC, {"from": old_name, "to": new_name}),
-    )
+    try:
+        response = _await_message(
+            RENAME_RESPONSE_TOPIC,
+            timeout,
+            publish=(RENAME_REQUEST_TOPIC, {"from": old_name, "to": new_name}),
+        )
+    except TimeoutError:
+        # Zigbee2MQTT drops its broker connection occasionally, which loses the
+        # reply to a rename it has already carried out. Check the outcome
+        # rather than treating a missing reply as a failed rename.
+        if ieee_address and already_named(ieee_address, new_name):
+            return None
+        raise
     if response.get("status") != "ok":
+        # "already in use" is the same lost-reply case seen from the other
+        # side: the rename landed, the retained device list we read was stale,
+        # and the name we are being refused is the one this device already has.
+        if ieee_address and already_named(ieee_address, new_name):
+            return None
         raise RuntimeError(f"Z2M rename {old_name!r} -> {new_name!r} failed: {response}")
     return response
 
