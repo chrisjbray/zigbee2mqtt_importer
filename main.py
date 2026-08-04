@@ -29,6 +29,10 @@ import z2m
 import zha
 
 MIGRATED_PREFIX = "zz_migrated_"
+# Marks the throwaway name a device wears between its old Zigbee2MQTT name and
+# its canonical one, so that name cannot collide with one another device
+# already holds.
+INTERMEDIATE_SUFFIX = "__"
 RELOAD_DOMAINS = ("automation", "script", "scene")
 
 logger = logging.getLogger("importer")
@@ -254,9 +258,19 @@ def build_plan(ieee, zha_info, z2m_device, overrides_path):
     # fixed schema.
     reference_map[zha_info["ha_device_id"]] = new_device["id"]
 
+    # The intermediate name carries a marker suffix so it cannot collide with a
+    # name something else already has. Renaming straight to the old ZHA name
+    # fails outright when another device in Zigbee2MQTT already goes by it,
+    # which is common when the old ZHA names were never unique to begin with.
+    # When the device is already canonically named there is nothing to do, and
+    # collapsing the intermediate onto the canonical name lets the no-op guard
+    # in `z2m.rename` skip both renames.
+    intermediate = canonical if z2m_name == canonical else zha_info["name"] + INTERMEDIATE_SUFFIX
+
     return {
         "ieee": ieee,
         "canonical": canonical,
+        "intermediate_name": intermediate,
         "zha": zha_info,
         "z2m_name": z2m_name,
         "new_device_id": new_device["id"],
@@ -360,12 +374,14 @@ def execute(plan, workdir, run_id, dry_run):
 
     # (b) Temporary Z2M name, so anything auto-created by MQTT discovery in the
     # meantime shows up under a recognisable name.
-    if plan["z2m_name"] == zha_info["name"]:
-        logger.info("Z2M name is already %r, no temporary rename needed", zha_info["name"])
+    if plan["z2m_name"] == plan["intermediate_name"]:
+        logger.info("Z2M name is already %r, no temporary rename needed", plan["z2m_name"])
     else:
-        logger.info("%srename in Z2M: %r -> %r (temporary)", prefix, plan["z2m_name"], zha_info["name"])
+        logger.info(
+            "%srename in Z2M: %r -> %r (temporary)", prefix, plan["z2m_name"], plan["intermediate_name"]
+        )
         if not dry_run:
-            z2m.rename(plan["z2m_name"], zha_info["name"])
+            z2m.rename(plan["z2m_name"], plan["intermediate_name"])
 
     # Free the entity id namespace before claiming it for the new entities.
     for old, _new, _target in plan["renames"]:
@@ -404,12 +420,14 @@ def execute(plan, workdir, run_id, dry_run):
             ha.update_entity_id(new["entity_id"], target)
 
     # (f) Final canonical Z2M name.
-    if zha_info["name"] == plan["canonical"]:
+    if plan["intermediate_name"] == plan["canonical"]:
         logger.info("Z2M name is already the canonical %r, nothing to rename", plan["canonical"])
     else:
-        logger.info("%srename in Z2M: %r -> %r (canonical)", prefix, zha_info["name"], plan["canonical"])
+        logger.info(
+            "%srename in Z2M: %r -> %r (canonical)", prefix, plan["intermediate_name"], plan["canonical"]
+        )
         if not dry_run:
-            z2m.rename(zha_info["name"], plan["canonical"])
+            z2m.rename(plan["intermediate_name"], plan["canonical"])
 
     # (g) Copy the old device's settings across.
     for attribute, value in sorted(plan["settings_writes"].items()):

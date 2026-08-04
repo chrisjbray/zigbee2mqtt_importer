@@ -13,8 +13,10 @@ everything that comes after that.
 When a device appears in Zigbee2MQTT whose IEEE address still matches a live
 ZHA device:
 
-1. Renames the device in Zigbee2MQTT to the old ZHA name, temporarily, so
-   anything auto-created by MQTT discovery in the meantime is recognisable.
+1. Renames the device in Zigbee2MQTT to the old ZHA name with a `__` suffix,
+   temporarily, so anything auto-created by MQTT discovery in the meantime is
+   recognisable. The suffix keeps that throwaway name from colliding with one
+   another device already holds, which the old ZHA names frequently do.
 2. Moves the old ZHA entity ids out of the way, prefixing them with
    `zz_migrated_`.
 3. Disables the old ZHA device and renames it to `zz_migrated_<old name>`.
