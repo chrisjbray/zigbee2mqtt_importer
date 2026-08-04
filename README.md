@@ -22,10 +22,11 @@ ZHA device:
 5. Renames the new entities to stable ids derived from the canonical name.
 6. Renames the device in Zigbee2MQTT to its canonical name.
 7. Copies the old device's settings across to Zigbee2MQTT.
-8. Repoints every literal `entity_id` reference in `automations.yaml`,
+8. Registers every action the device can emit as a Home Assistant trigger.
+9. Repoints every literal `entity_id` reference in `automations.yaml`,
    `scripts.yaml`, `scenes.yaml` and the Lovelace storage files at the new
    entity ids, backing every file up first.
-9. Reloads the automation, script and scene domains, so no restart is needed.
+10. Reloads the automation, script and scene domains, so no restart is needed.
 
 **Dry run is the default.** Nothing is modified unless `--live` is passed.
 
@@ -170,10 +171,34 @@ MQTT connection details come from `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER` and
 | `z2m.py` | Zigbee2MQTT bridge queries and device renames |
 | `rewrite.py` | Token-aware entity_id reference rewriting, with backups |
 | `settings.py` | ZHA to Z2M settings map and value translation |
+| `triggers.py` | Home Assistant action trigger discovery configs |
 | `naming.py` | Canonical `<Area> <Location> <Use>` derivation |
 
-`naming.py`, `rewrite.py` and `settings.py` all run their own self-checks when executed
+`naming.py`, `rewrite.py`, `settings.py` and `triggers.py` all run their own self-checks when executed
 directly, which is where the logic worth breaking lives.
+
+## Action triggers
+
+Zigbee2MQTT only publishes the Home Assistant `device_automation` discovery
+config for an action the first time that exact value is actually seen coming
+off the device. It never publishes the static `exposes.action.values` enum up
+front. So until somebody physically performs every gesture, most of a switch's
+triggers are not selectable in Home Assistant at all: a VZM31-SN advertises 21
+action values and on this network they typically have about five.
+
+Migration is the right moment to fix that, so every advertised action value
+that has no discovery config gets one published directly. Values that already
+have a config are left alone, which makes this idempotent and avoids replacing
+a real config with a reconstructed one.
+
+**Only the discovery config topic is ever published.** The device's own
+`zigbee2mqtt/<name>/action` topic is never touched: that one carries real
+events, and anything already subscribed to it would fire for real. The payload
+contract was taken from the Zigbee2MQTT source and is asserted in
+`triggers.py`'s self-check by rebuilding a real retained config byte for byte.
+
+This is not model specific: it applies to anything with an `action` expose,
+including multi-button remotes and motion sensors.
 
 ## Settings migration
 

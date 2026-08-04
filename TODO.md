@@ -11,6 +11,7 @@
 - [x] Watcher loop, dry run by default, per-run rollback scripts
 - [x] Wired into the shared `run.sh` supervisor as `importer()`
 - [x] Settings migration from ZHA to Z2M for the Inovelli VZM31-SN
+- [x] Pre-publish Home Assistant action trigger discovery configs
 
 ## Open
 

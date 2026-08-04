@@ -24,6 +24,7 @@ import ha
 import naming
 import rewrite
 import settings
+import triggers
 import z2m
 import zha
 
@@ -136,6 +137,29 @@ def plan_settings(old_entities, z2m_device):
     return settings.plan(model, zha_values, z2m.exposes(z2m_device))
 
 
+def plan_triggers(ieee, z2m_device):
+    """Work out which action trigger discovery configs are still missing."""
+    bridge = z2m.info()
+    coordinator = next(
+        (device["ieee_address"] for device in z2m.devices() if device.get("type") == "Coordinator"),
+        None,
+    )
+    if coordinator is None:
+        needs_review("%s: no coordinator in the bridge device list, cannot build trigger configs", ieee)
+        return []
+
+    address = z2m_device["ieee_address"]
+    retained = z2m.collect(f"{triggers.DISCOVERY_PREFIX}/device_automation/{address}/+/config")
+    return triggers.plan(
+        z2m_device,
+        z2m.exposes(z2m_device),
+        retained,
+        coordinator,
+        bridge.get("version", "unknown"),
+        bridge["config"]["mqtt"]["base_topic"],
+    )
+
+
 def build_plan(ieee, zha_info, z2m_device, overrides_path):
     """Work out everything that would change, without changing anything."""
     z2m_name = z2m_device["friendly_name"]
@@ -173,6 +197,7 @@ def build_plan(ieee, zha_info, z2m_device, overrides_path):
 
     all_old_entities = ha.device_entities(all_entities, zha_info["ha_device_id"])
     settings_writes, settings_notes = plan_settings(all_old_entities, z2m_device)
+    trigger_writes = plan_triggers(ieee, z2m_device)
     for note in settings_notes:
         needs_review("%s settings: %s", ieee, note)
 
@@ -227,6 +252,7 @@ def build_plan(ieee, zha_info, z2m_device, overrides_path):
         "renames": renames,
         "reference_map": reference_map,
         "settings_writes": settings_writes,
+        "trigger_writes": trigger_writes,
     }
 
 
@@ -370,6 +396,20 @@ def execute(plan, workdir, run_id, dry_run):
         z2m.set_attributes(plan["canonical"], plan["settings_writes"])
     if not plan["settings_writes"]:
         logger.info("no settings to copy across")
+
+    # Register every action the device can emit as a Home Assistant trigger,
+    # so they are all selectable without having to perform each gesture first.
+    # This only ever writes discovery config topics, never the action topic.
+    for topic, _payload in plan["trigger_writes"]:
+        logger.info("%sregister trigger %s", prefix, topic.rsplit("/", 2)[-2])
+    if plan["trigger_writes"]:
+        logger.info("%spublish %s trigger discovery config(s)", prefix, len(plan["trigger_writes"]))
+        if not dry_run:
+            z2m.publish_retained(
+                [(topic, triggers.encode(payload)) for topic, payload in plan["trigger_writes"]]
+            )
+    else:
+        logger.info("no missing action triggers to register")
 
     # (d) Repoint literal entity_id references, backing every file up first.
     backup_dir = os.path.join(workdir, "backups")

@@ -13,6 +13,7 @@ naturally idempotent, so polling costs nothing in complexity.
 import json
 import os
 import threading
+import time
 
 import paho.mqtt.client as mqtt
 
@@ -101,6 +102,49 @@ def set_attributes(friendly_name, payload, timeout=10):
     client.loop_start()
     try:
         client.publish(f"{BASE_TOPIC}/{friendly_name}/set", json.dumps(payload)).wait_for_publish(timeout)
+    finally:
+        client.loop_stop()
+        client.disconnect()
+
+
+def info(timeout=15):
+    """The bridge's own retained info topic."""
+    return _await_message(f"{BASE_TOPIC}/bridge/info", timeout)
+
+
+def collect(topic, window=3.0):
+    """Gather every retained message currently on a wildcard topic.
+
+    Retained messages all arrive immediately on subscribe, so a short window is
+    enough; there is no completion signal to wait for.
+    """
+    found = {}
+
+    def on_message(client, userdata, message):
+        try:
+            found[message.topic] = json.loads(message.payload.decode())
+        except ValueError:
+            pass
+
+    client = _client()
+    client.on_message = on_message
+    client.subscribe(topic)
+    client.loop_start()
+    try:
+        time.sleep(window)
+    finally:
+        client.loop_stop()
+        client.disconnect()
+    return found
+
+
+def publish_retained(messages, timeout=10):
+    """Publish retained QoS 1 messages, matching how Zigbee2MQTT publishes."""
+    client = _client()
+    client.loop_start()
+    try:
+        for topic, payload in messages:
+            client.publish(topic, payload, qos=1, retain=True).wait_for_publish(timeout)
     finally:
         client.loop_stop()
         client.disconnect()
