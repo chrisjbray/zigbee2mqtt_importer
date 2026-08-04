@@ -138,6 +138,26 @@ def _self_check():
     assert "switch.old_name_2" in updated, "must not corrupt a longer sibling entity id"
     assert "sensor.switch.old_name" in updated, "must not match a dotted suffix"
     assert updated.count("switch.new_name") == 2
+
+    # Registry device_id references break on a migration too, because the new
+    # device is a new registry entry rather than a renamed one. Blueprint inputs
+    # name their own keys, so this has to work whatever key the device_id sits
+    # under. This is the exact shape that silently broke a live
+    # motion-activated light automation.
+    old_device, new_device = "e70954ddd95087226cb3a0d7b6ca18cd", "2c28c158537319bda7163c67da7bb697"
+    blueprint = (
+        "use_blueprint:\n"
+        "  path: homeassistant/motion_light.yaml\n"
+        "  input:\n"
+        "    motion_entity: binary_sensor.closet_motion_sensor_motion\n"
+        f"    light_target:\n      device_id: {old_device}\n"
+        f"target:\n  device_id: {old_device}\n"
+    )
+    rewritten, device_counts = apply_mapping(blueprint, {old_device: new_device})
+    assert device_counts == {old_device: 2}, device_counts
+    assert old_device not in rewritten
+    assert rewritten.count(new_device) == 2
+
     print("rewrite self-check OK")
 
 

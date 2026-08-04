@@ -243,6 +243,17 @@ def build_plan(ieee, zha_info, z2m_device, overrides_path):
         renames.append((old, new, target))
         reference_map[old["entity_id"]] = target
 
+    # A migration is not a rename. The Zigbee2MQTT device is a brand new device
+    # registry entry under a different integration, so it gets a different
+    # device_id, and every registry reference to the old one breaks exactly the
+    # way a stale entity_id does. Registry references survive an ordinary
+    # in-place rename, which is why they were originally left alone, but they
+    # do not survive this. Token replacement handles them without caring which
+    # key they sit under, which matters because blueprint inputs name their own
+    # keys (`light_target`, `switch_target`, anything) rather than following a
+    # fixed schema.
+    reference_map[zha_info["ha_device_id"]] = new_device["id"]
+
     return {
         "ieee": ieee,
         "canonical": canonical,
@@ -483,6 +494,11 @@ def run_once(args, workdir):
                 "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "zha_name": snapshot[ieee]["name"],
                 "canonical": plan["canonical"],
+                # Recorded so a later audit can check the old device_id really
+                # did stop being referenced, without re-deriving the pair from
+                # the registry.
+                "old_device_id": snapshot[ieee]["ha_device_id"],
+                "new_device_id": plan["new_device_id"],
             }
             save_json(completed_path, completed)
             logger.info("migration of %s complete", ieee)
