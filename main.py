@@ -360,12 +360,17 @@ def execute(plan, workdir, run_id, dry_run):
 
     # (b) Temporary Z2M name, so anything auto-created by MQTT discovery in the
     # meantime shows up under a recognisable name.
-    logger.info("%srename in Z2M: %r -> %r (temporary)", prefix, plan["z2m_name"], zha_info["name"])
-    if not dry_run:
-        z2m.rename(plan["z2m_name"], zha_info["name"])
+    if plan["z2m_name"] == zha_info["name"]:
+        logger.info("Z2M name is already %r, no temporary rename needed", zha_info["name"])
+    else:
+        logger.info("%srename in Z2M: %r -> %r (temporary)", prefix, plan["z2m_name"], zha_info["name"])
+        if not dry_run:
+            z2m.rename(plan["z2m_name"], zha_info["name"])
 
     # Free the entity id namespace before claiming it for the new entities.
     for old, _new, _target in plan["renames"]:
+        if old["entity_id"] == retired_entity_id(old):
+            continue
         logger.info("%sretire old entity id: %s -> %s", prefix, old["entity_id"], retired_entity_id(old))
         if not dry_run:
             ha.update_entity_id(old["entity_id"], retired_entity_id(old))
@@ -391,14 +396,20 @@ def execute(plan, workdir, run_id, dry_run):
 
     # (e) Give the new entities stable ids derived from the canonical name.
     for _old, new, target in plan["renames"]:
+        if new["entity_id"] == target:
+            logger.info("entity id %s is already correct, nothing to rename", target)
+            continue
         logger.info("%srename entity id: %s -> %s", prefix, new["entity_id"], target)
         if not dry_run:
             ha.update_entity_id(new["entity_id"], target)
 
     # (f) Final canonical Z2M name.
-    logger.info("%srename in Z2M: %r -> %r (canonical)", prefix, zha_info["name"], plan["canonical"])
-    if not dry_run:
-        z2m.rename(zha_info["name"], plan["canonical"])
+    if zha_info["name"] == plan["canonical"]:
+        logger.info("Z2M name is already the canonical %r, nothing to rename", plan["canonical"])
+    else:
+        logger.info("%srename in Z2M: %r -> %r (canonical)", prefix, zha_info["name"], plan["canonical"])
+        if not dry_run:
+            z2m.rename(zha_info["name"], plan["canonical"])
 
     # (g) Copy the old device's settings across.
     for attribute, value in sorted(plan["settings_writes"].items()):

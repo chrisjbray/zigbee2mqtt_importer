@@ -120,7 +120,13 @@ def call_service(domain, service, payload):
 
 
 def update_entity_id(old_entity_id, new_entity_id):
-    """Rename an entity_id in place, no restart needed."""
+    """Rename an entity_id in place, no restart needed.
+
+    Renaming an entity to the id it already has is nothing to do, not an error.
+    """
+    if old_entity_id == new_entity_id:
+        return None
+
     return call_service(
         "homeassistant",
         "update_entity_id",

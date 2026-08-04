@@ -153,10 +153,18 @@ def publish_retained(messages, timeout=10):
 def rename(old_name, new_name, timeout=20):
     """Rename a device's friendly_name, verified against the bridge response.
 
+    A rename to the name the device already has is not an error, it is nothing
+    to do. Zigbee2MQTT rejects it outright with "friendly_name is already in
+    use", which used to abort the whole migration part way through and leave it
+    to be retried from the start on every pass.
+
     `homeassistant_rename` is deliberately left at its default of false: this
     tool renames the Home Assistant entities itself, and letting Z2M do it too
     would fight over the same entity ids.
     """
+    if old_name == new_name:
+        return None
+
     response = _await_message(
         RENAME_RESPONSE_TOPIC,
         timeout,
