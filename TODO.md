@@ -9,7 +9,7 @@
 - [x] Token-aware entity_id reference rewriting, with per-run backups
 - [x] Zigbee2MQTT device list polling and renames
 - [x] Watcher loop, dry run by default, per-run rollback scripts
-- [ ] Wired into the shared `run.sh` supervisor as `importer()`
+- [x] Wired into the shared `run.sh` supervisor as `importer()`
 
 ## Open
 
