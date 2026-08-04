@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive the canonical `[Area] [Location] [Use]` name for a migrated device.
+"""Derive the canonical `<Area> <Location> <Use>` name for a migrated device.
 
 The Area component always comes from the old ZHA device's Home Assistant area.
 Location and Use have to be guessed out of the free-form ZHA device name, which
@@ -30,12 +30,12 @@ def _strip_area_words(tokens, area_name):
 def derive(zha_name, area_name):
     """Return (canonical_name, uncertainty_reason). Either may be None."""
     if not area_name:
-        return None, "device has no Home Assistant area, cannot build the [Area] component"
+        return None, "device has no Home Assistant area, cannot build the Area component"
 
     tokens = _strip_area_words(zha_name.split(), area_name)
 
     if len(tokens) == 2:
-        return f"[{area_name}] [{tokens[0]}] [{tokens[1]}]", None
+        return f"{area_name} {tokens[0]} {tokens[1]}", None
 
     if len(tokens) < 2:
         return (
@@ -46,7 +46,7 @@ def derive(zha_name, area_name):
 
     location, use = tokens[0], " ".join(tokens[1:])
     return (
-        f"[{area_name}] [{location}] [{use}]",
+        f"{area_name} {location} {use}",
         f"{len(tokens)} tokens remain in {zha_name!r}; guessed "
         f"Location={location!r} Use={use!r}, confirm before going live",
     )
@@ -58,7 +58,7 @@ _HELP = (
     "Canonical device names, keyed by IEEE address with no 0x and no colons. "
     f"A value still carrying the '{TEMPLATE_PREFIX}' prefix is this tool's own guess "
     "and is ignored: correct it if it is wrong, then delete that prefix to confirm "
-    "it. Format: [Area] [Location] [Use]"
+    "it. Format: <Area> <Location> <Use>"
 )
 
 
@@ -97,19 +97,19 @@ def write_template(path, ieee, proposed):
 
 
 def _self_check():
-    assert slug("[Living Room] [Arch] [Sconces]") == "living_room_arch_sconces"
-    assert slug("[kg Bathroom] [Sink] [Cans]") == "kg_bathroom_sink_cans"
+    assert slug("Living Room Arch Sconces") == "living_room_arch_sconces"
+    assert slug("kg Bathroom Sink Cans") == "kg_bathroom_sink_cans"
 
     # Clean two-token splits, with and without the area repeated in the name.
-    assert derive("Garage Overhead Middle", "Garage") == ("[Garage] [Overhead] [Middle]", None)
+    assert derive("Garage Overhead Middle", "Garage") == ("Garage Overhead Middle", None)
     assert derive("Bathroom Closet Right", "kg Bathroom") == (
-        "[kg Bathroom] [Closet] [Right]",
+        "kg Bathroom Closet Right",
         None,
     )
 
     # Ambiguous: best-effort guess, but flagged.
     name, reason = derive("Hot Water Solar Pump", "Garage")
-    assert name == "[Garage] [Hot] [Water Solar Pump]"
+    assert name == "Garage Hot Water Solar Pump"
     assert reason
 
     # Not derivable at all.
@@ -117,17 +117,17 @@ def _self_check():
     assert derive("Anything", "")[0] is None
 
     # A confirmed override always wins and is never uncertain.
-    assert canonical_for("abc", "Hot Water Solar Pump", "Garage", {"abc": "[Garage] [Solar] [Pump]"}) == (
-        "[Garage] [Solar] [Pump]",
+    assert canonical_for("abc", "Hot Water Solar Pump", "Garage", {"abc": "Garage Solar Pump"}) == (
+        "Garage Solar Pump",
         None,
     )
 
     # An unconfirmed template must NOT be acted on, or the tool would end up
     # confirming its own guess.
     still_a_guess = canonical_for(
-        "abc", "Hot Water Solar Pump", "Garage", {"abc": TEMPLATE_PREFIX + "[Garage] [Solar] [Pump]"}
+        "abc", "Hot Water Solar Pump", "Garage", {"abc": TEMPLATE_PREFIX + "Garage Solar Pump"}
     )
-    assert still_a_guess[0] == "[Garage] [Hot] [Water Solar Pump]"
+    assert still_a_guess[0] == "Garage Hot Water Solar Pump"
     assert still_a_guess[1]
     print("naming self-check OK")
 

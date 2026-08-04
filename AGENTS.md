@@ -15,6 +15,6 @@ integration into Zigbee2MQTT.
 
 - **Safety:** Dry run is the default. Nothing is modified without `--live`, which requires root.
 - **Detection:** Polls the retained `zigbee2mqtt/bridge/devices` topic; a device is a candidate when its IEEE is in both Z2M and the current ZHA snapshot.
-- **Naming:** `[Area] [Location] [Use]`. The area always comes from the Home Assistant area registry, never from the device name.
+- **Naming:** `<Area> <Location> <Use>`. The area always comes from the Home Assistant area registry, never from the device name.
 - **Uncertainty:** An ambiguous name derivation is logged to `workdir/needs_review.log` and skipped, never guessed live. `workdir/name_overrides.json` is the manual override.
 - **Registries:** Reads come from `.storage`. Entity id renames go over REST, device renames and disables over the websocket API, which has no REST equivalent.

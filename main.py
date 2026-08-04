@@ -5,7 +5,7 @@ Chris re-pairs one physical device at a time. When a device turns up in
 Zigbee2MQTT whose IEEE address still matches a live ZHA device, this tool makes
 the switch transparent: it retires the old ZHA device, gives the new one the
 old device's area, renames the new entities to stable ids derived from the
-canonical `[Area] [Location] [Use]` name, repoints every literal entity_id
+canonical `<Area> <Location> <Use>` name, repoints every literal entity_id
 reference in the Home Assistant config at the new ids, and renames the device
 in Zigbee2MQTT.
 
@@ -125,7 +125,7 @@ def build_plan(ieee, zha_info, z2m_name, overrides_path):
     if uncertainty or canonical is None:
         # Write the entry out prefilled, so confirming it is an edit rather
         # than hand-writing JSON. The prefix keeps it inert until then.
-        proposed = canonical or f"[{zha_info['area_name'] or '<Area>'}] [<Location>] [<Use>]"
+        proposed = canonical or f"{zha_info['area_name'] or '<Area>'} <Location> <Use>"
         added = naming.write_template(overrides_path, ieee, proposed)
         needs_review(
             "%s (ZHA %r, Z2M %r): %s. %s %s as %r, correct it if needed and remove the "

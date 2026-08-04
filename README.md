@@ -45,17 +45,16 @@ the entity registry is actually involved:
 
 ## Canonical naming
 
-Names are `[Area] [Location] [Use]`, with the square brackets part of the name:
-`[Garage] [Overhead] [Middle]`, `[Living Room] [Arch] [Sconces]`,
-`[kg Bathroom] [Sink] [Cans]`.
+Names are `<Area> <Location> <Use>`, space separated: `Garage Overhead Middle`,
+`Living Room Arch Sconces`, `kg Bathroom Sink Cans`.
 
-`[Area]` always comes from the Home Assistant area the device is in, never from
+The area always comes from the Home Assistant area the device is in, never from
 the device name, because plenty of device names carry the wrong area or none at
 all. Leading name tokens that merely repeat words from the area name are
 dropped, so `Bathroom Closet Right` in area `kg Bathroom` becomes
-`[kg Bathroom] [Closet] [Right]`.
+`kg Bathroom Closet Right`.
 
-`[Location]` and `[Use]` have to come out of the free-form remainder of the ZHA
+The location and use have to come out of the free-form remainder of the ZHA
 name, which is genuinely ambiguous. Exactly two remaining tokens is treated as
 a clean split. Anything else gets a best-effort guess that is **logged for
 review and not acted on**, because a wrong guess propagates into entity ids and
@@ -72,7 +71,7 @@ prefilled with the best guess and keyed by normalised IEEE address:
 ```json
 {
   "_help": "... how to confirm an entry ...",
-  "0011223344556677": "TODO confirm: [Stairway] [Ceiling] [Motion]"
+  "0011223344556677": "TODO confirm: Stairway Ceiling Motion"
 }
 ```
 
@@ -169,7 +168,7 @@ MQTT connection details come from `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER` and
 | `ha_ws_call.py` | Websocket helper, copied into the HA container to run |
 | `z2m.py` | Zigbee2MQTT bridge queries and device renames |
 | `rewrite.py` | Token-aware entity_id reference rewriting, with backups |
-| `naming.py` | Canonical `[Area] [Location] [Use]` derivation |
+| `naming.py` | Canonical `<Area> <Location> <Use>` derivation |
 
 `naming.py` and `rewrite.py` both run their own self-checks when executed
 directly, which is where the logic worth breaking lives.
