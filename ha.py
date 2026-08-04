@@ -18,8 +18,10 @@ the shared virtualenv.
 import json
 import os
 import subprocess
+import urllib.parse
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 CONFIG_DIR = os.getenv("HA_CONFIG_DIR", "/data/config/homeassistant")
 STORAGE_DIR = os.path.join(CONFIG_DIR, ".storage")
@@ -97,6 +99,27 @@ def states():
     request = urllib.request.Request(f"{BASE_URL}/api/states", headers={"Authorization": f"Bearer {token()}"})
     with urllib.request.urlopen(request, timeout=30) as response:
         return {entity["entity_id"]: entity["state"] for entity in json.load(response)}
+
+
+def history(entity_ids, days=7):
+    """Recorded state history for the given entities, oldest first.
+
+    The recorder is keyed by the entity_id string, so this still returns
+    history for an entity that has since been disabled, renamed away or dropped
+    from the registry. That is the only way to recover a ZHA device's settings
+    once it has left the ZHA network, because a Zigbee device can only be
+    joined to one coordinator at a time: the moment it appears in Zigbee2MQTT,
+    ZHA can no longer poll it and every one of its entities reads unavailable.
+    """
+    start = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    query = urllib.parse.urlencode({"filter_entity_id": ",".join(entity_ids), "minimal_response": ""})
+    request = urllib.request.Request(
+        f"{BASE_URL}/api/history/period/{start}?{query}",
+        headers={"Authorization": f"Bearer {token()}"},
+    )
+    with urllib.request.urlopen(request, timeout=120) as response:
+        series = json.load(response)
+    return {entries[0]["entity_id"]: entries for entries in series if entries}
 
 
 def call_service(domain, service, payload):

@@ -29,6 +29,8 @@ import z2m
 import zha
 
 MIGRATED_PREFIX = "zz_migrated_"
+# Entity domains that carry device configuration rather than telemetry.
+SETTINGS_DOMAINS = ("number", "select", "switch")
 # Marks the throwaway name a device wears between its old Zigbee2MQTT name and
 # its canonical one, so that name cannot collide with one another device
 # already holds.
@@ -123,22 +125,52 @@ def retired_entity_id(entity):
     return f"{domain}.{MIGRATED_PREFIX}{object_id}"
 
 
-def plan_settings(old_entities, z2m_device):
-    """Work out which of the old device's settings to copy into Zigbee2MQTT."""
-    try:
-        current = ha.states()
-    except OSError as error:
-        return {}, [f"cannot read entity states ({error}), re-run under `sudo -E` to plan the settings"]
+def last_recorded_value(entries):
+    """The most recent recorded state that was an actual value."""
+    for entry in reversed(entries):
+        state = entry.get("state")
+        if state is not None and str(state).strip().lower() not in settings.NO_VALUE:
+            return state
+    return None
 
+
+def plan_settings(old_entities, z2m_device, history_days):
+    """Work out which of the old device's settings to copy into Zigbee2MQTT.
+
+    Values come from the recorder, not from the entities' current state. By the
+    time a device shows up in Zigbee2MQTT it has already left the ZHA network,
+    so ZHA cannot poll it any more and every one of its entities reads
+    unavailable. Reading live state here could never have worked for any
+    device. The recorder still holds the last real value each entity had, from
+    the instant before it went unavailable, which is exactly what needs
+    copying.
+    """
     # Only configuration entities carry settings; everything else is telemetry.
-    zha_values = {
-        settings.zha_attribute(entity): current[entity["entity_id"]]
-        for entity in old_entities
-        if entity["entity_id"].split(".", 1)[0] in ("number", "select", "switch")
-        and entity["entity_id"] in current
-    }
+    config_entities = [
+        entity for entity in old_entities if entity["entity_id"].split(".", 1)[0] in SETTINGS_DOMAINS
+    ]
+    if not config_entities:
+        return {}, []
+
+    try:
+        recorded = ha.history([entity["entity_id"] for entity in config_entities], history_days)
+    except OSError as error:
+        return {}, [f"cannot read recorder history ({error}), settings were not migrated"]
+
+    zha_values, notes = {}, []
+    for entity in config_entities:
+        value = last_recorded_value(recorded.get(entity["entity_id"], []))
+        if value is None:
+            notes.append(
+                f"{settings.zha_attribute(entity)} has no real value in the last "
+                f"{history_days} days of recorder history ({entity['entity_id']}), not migrated"
+            )
+            continue
+        zha_values[settings.zha_attribute(entity)] = value
+
     model = (z2m_device.get("definition") or {}).get("model", "unknown")
-    return settings.plan(model, zha_values, z2m.exposes(z2m_device))
+    writes, plan_notes = settings.plan(model, zha_values, z2m.exposes(z2m_device))
+    return writes, notes + plan_notes
 
 
 def plan_triggers(ieee, z2m_device):
@@ -164,7 +196,7 @@ def plan_triggers(ieee, z2m_device):
     )
 
 
-def build_plan(ieee, zha_info, z2m_device, overrides_path):
+def build_plan(ieee, zha_info, z2m_device, overrides_path, history_days):
     """Work out everything that would change, without changing anything."""
     z2m_name = z2m_device["friendly_name"]
     canonical, uncertainty = naming.canonical_for(
@@ -200,7 +232,7 @@ def build_plan(ieee, zha_info, z2m_device, overrides_path):
         return None
 
     all_old_entities = ha.device_entities(all_entities, zha_info["ha_device_id"])
-    settings_writes, settings_notes = plan_settings(all_old_entities, z2m_device)
+    settings_writes, settings_notes = plan_settings(all_old_entities, z2m_device, history_days)
     trigger_writes = plan_triggers(ieee, z2m_device)
     for note in settings_notes:
         needs_review("%s settings: %s", ieee, note)
@@ -507,7 +539,7 @@ def run_once(args, workdir):
     logger.info("%s device(s) present in both Z2M and the ZHA snapshot", len(candidates))
     for ieee in candidates:
         run_id = time.strftime("%Y%m%d-%H%M%S")
-        plan = build_plan(ieee, snapshot[ieee], paired[ieee], overrides_path)
+        plan = build_plan(ieee, snapshot[ieee], paired[ieee], overrides_path, args.history_days)
         if plan is None:
             continue
 
@@ -555,6 +587,13 @@ def parse_args():
         help="Seconds between checks of the Z2M device list (default: 60)",
     )
     parser.add_argument("--once", action="store_true", help="Run a single pass and exit")
+    parser.add_argument(
+        "--history-days",
+        type=float,
+        default=7.0,
+        help="How far back to look in the recorder for a device's last real settings "
+        "values (default: 7, and Home Assistant keeps 10 by default)",
+    )
     parser.add_argument(
         "--workdir",
         default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "workdir"),
