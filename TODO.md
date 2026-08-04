@@ -7,7 +7,7 @@
 - [x] Canonical `[Area] [Location] [Use]` name derivation, with overrides
 - [x] Home Assistant registry operations (rename, disable, area, entity id)
 - [ ] Token-aware entity_id reference rewriting, with per-run backups
-- [ ] Zigbee2MQTT device list polling and renames
+- [x] Zigbee2MQTT device list polling and renames
 - [ ] Watcher loop, dry run by default, per-run rollback scripts
 - [ ] Wired into the shared `run.sh` supervisor as `importer()`
 

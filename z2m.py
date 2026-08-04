@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Zigbee2MQTT bridge queries and device renames over MQTT.
+
+New devices are detected by polling the retained `bridge/devices` topic rather
+than by subscribing to `bridge/event`. `bridge/devices` is retained, so every
+poll returns complete current state and nothing is missed while the tool is
+restarted or stopped, whereas `device_joined` events are edge triggered and
+lost if they fire while the tool is down. The trigger condition here is a set
+intersection (a Z2M device whose IEEE is still in the ZHA snapshot) which is
+naturally idempotent, so polling costs nothing in complexity.
+"""
+
+import json
+import os
+import threading
+
+import paho.mqtt.client as mqtt
+
+BASE_TOPIC = os.getenv("Z2M_BASE_TOPIC", "zigbee2mqtt")
+DEVICES_TOPIC = f"{BASE_TOPIC}/bridge/devices"
+RENAME_REQUEST_TOPIC = f"{BASE_TOPIC}/bridge/request/device/rename"
+RENAME_RESPONSE_TOPIC = f"{BASE_TOPIC}/bridge/response/device/rename"
+
+
+def _client():
+    """Connect a client to the broker described by the MQTT_* environment."""
+    try:
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    except AttributeError:  # paho-mqtt 1.x
+        client = mqtt.Client()
+
+    user = os.getenv("MQTT_USER", "")
+    if user:
+        client.username_pw_set(user, os.getenv("MQTT_PASSWORD", ""))
+    client.connect(os.getenv("MQTT_HOST", "127.0.0.1"), int(os.getenv("MQTT_PORT", 1883)), 60)
+    return client
+
+
+def _await_message(topic, timeout, publish=None):
+    """Subscribe, optionally publish a request, and return the first payload."""
+    received = {}
+    done = threading.Event()
+
+    def on_message(client, userdata, message):
+        received["payload"] = json.loads(message.payload.decode())
+        done.set()
+
+    client = _client()
+    client.on_message = on_message
+    client.subscribe(topic)
+    client.loop_start()
+    try:
+        if publish:
+            client.publish(publish[0], json.dumps(publish[1]))
+        if not done.wait(timeout):
+            raise TimeoutError(f"no message on {topic} within {timeout}s")
+    finally:
+        client.loop_stop()
+        client.disconnect()
+    return received["payload"]
+
+
+def devices(timeout=15):
+    """The current Zigbee2MQTT device list from the retained bridge topic."""
+    return _await_message(DEVICES_TOPIC, timeout)
+
+
+def paired_devices(timeout=15):
+    """Map normalised IEEE -> friendly_name, coordinator excluded."""
+    return {
+        device["ieee_address"].replace("0x", "").lower(): device["friendly_name"]
+        for device in devices(timeout)
+        if device.get("type") != "Coordinator"
+    }
+
+
+def rename(old_name, new_name, timeout=20):
+    """Rename a device's friendly_name, verified against the bridge response.
+
+    `homeassistant_rename` is deliberately left at its default of false: this
+    tool renames the Home Assistant entities itself, and letting Z2M do it too
+    would fight over the same entity ids.
+    """
+    response = _await_message(
+        RENAME_RESPONSE_TOPIC,
+        timeout,
+        publish=(RENAME_REQUEST_TOPIC, {"from": old_name, "to": new_name}),
+    )
+    if response.get("status") != "ok":
+        raise RuntimeError(f"Z2M rename {old_name!r} -> {new_name!r} failed: {response}")
+    return response
+
+
+if __name__ == "__main__":
+    for ieee, name in sorted(paired_devices().items(), key=lambda item: item[1]):
+        print(f"{ieee}  {name}")
