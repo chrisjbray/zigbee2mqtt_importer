@@ -23,6 +23,7 @@ import time
 import ha
 import naming
 import rewrite
+import settings
 import z2m
 import zha
 
@@ -117,8 +118,27 @@ def retired_entity_id(entity):
     return f"{domain}.{MIGRATED_PREFIX}{object_id}"
 
 
-def build_plan(ieee, zha_info, z2m_name, overrides_path):
+def plan_settings(old_entities, z2m_device):
+    """Work out which of the old device's settings to copy into Zigbee2MQTT."""
+    try:
+        current = ha.states()
+    except OSError as error:
+        return {}, [f"cannot read entity states ({error}), re-run under `sudo -E` to plan the settings"]
+
+    # Only configuration entities carry settings; everything else is telemetry.
+    zha_values = {
+        settings.zha_attribute(entity): current[entity["entity_id"]]
+        for entity in old_entities
+        if entity["entity_id"].split(".", 1)[0] in ("number", "select", "switch")
+        and entity["entity_id"] in current
+    }
+    model = (z2m_device.get("definition") or {}).get("model", "unknown")
+    return settings.plan(model, zha_values, z2m.exposes(z2m_device))
+
+
+def build_plan(ieee, zha_info, z2m_device, overrides_path):
     """Work out everything that would change, without changing anything."""
+    z2m_name = z2m_device["friendly_name"]
     canonical, uncertainty = naming.canonical_for(
         ieee, zha_info["name"], zha_info["area_name"], naming.load_overrides(overrides_path)
     )
@@ -151,7 +171,12 @@ def build_plan(ieee, zha_info, z2m_name, overrides_path):
         )
         return None
 
-    old_entities = enabled(ha.device_entities(all_entities, zha_info["ha_device_id"]))
+    all_old_entities = ha.device_entities(all_entities, zha_info["ha_device_id"])
+    settings_writes, settings_notes = plan_settings(all_old_entities, z2m_device)
+    for note in settings_notes:
+        needs_review("%s settings: %s", ieee, note)
+
+    old_entities = enabled(all_old_entities)
     new_entities = enabled(ha.device_entities(all_entities, new_device["id"]))
     pairs, unpaired = pair_entities(old_entities, new_entities)
 
@@ -201,6 +226,7 @@ def build_plan(ieee, zha_info, z2m_name, overrides_path):
         "new_device_id": new_device["id"],
         "renames": renames,
         "reference_map": reference_map,
+        "settings_writes": settings_writes,
     }
 
 
@@ -336,6 +362,14 @@ def execute(plan, workdir, run_id, dry_run):
     logger.info("%srename in Z2M: %r -> %r (canonical)", prefix, zha_info["name"], plan["canonical"])
     if not dry_run:
         z2m.rename(zha_info["name"], plan["canonical"])
+
+    # (g) Copy the old device's settings across.
+    for attribute, value in sorted(plan["settings_writes"].items()):
+        logger.info("%sset %s = %r", prefix, attribute, value)
+    if plan["settings_writes"] and not dry_run:
+        z2m.set_attributes(plan["canonical"], plan["settings_writes"])
+    if not plan["settings_writes"]:
+        logger.info("no settings to copy across")
 
     # (d) Repoint literal entity_id references, backing every file up first.
     backup_dir = os.path.join(workdir, "backups")

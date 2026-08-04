@@ -10,6 +10,7 @@
 - [x] Zigbee2MQTT device list polling and renames
 - [x] Watcher loop, dry run by default, per-run rollback scripts
 - [x] Wired into the shared `run.sh` supervisor as `importer()`
+- [x] Settings migration from ZHA to Z2M for the Inovelli VZM31-SN
 
 ## Open
 
@@ -19,6 +20,9 @@
 - [ ] Lovelace storage rewrites need a Home Assistant restart to take effect,
       and can be clobbered if a dashboard is edited in the UI first. Currently
       only flagged in the log; decide whether that is good enough.
-- [ ] Intentionally out of scope: syncing ZHA device settings (reporting
-      configuration, binds) into Zigbee2MQTT. Dropped during scoping, recorded
-      here in case it is ever revisited.
+- [ ] Extend the settings map in `settings.py` beyond the Inovelli VZM31-SN.
+      Any other model is currently reported as unmapped rather than migrated.
+- [ ] `double_tap_up_enabled` / `double_tap_down_enabled` are left unmapped.
+      Z2M's `doubleTapUpToParam55` / `doubleTapDownToParam56` look related but
+      configure what a double tap does, not whether it is enabled. Confirm on
+      real hardware before mapping them.

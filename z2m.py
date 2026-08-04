@@ -66,12 +66,44 @@ def devices(timeout=15):
 
 
 def paired_devices(timeout=15):
-    """Map normalised IEEE -> friendly_name, coordinator excluded."""
+    """Map normalised IEEE -> the bridge's device entry, coordinator excluded."""
     return {
-        device["ieee_address"].replace("0x", "").lower(): device["friendly_name"]
+        device["ieee_address"].replace("0x", "").lower(): device
         for device in devices(timeout)
         if device.get("type") != "Coordinator"
     }
+
+
+def exposes(device):
+    """Flatten a bridge device entry's exposes to {property: definition}."""
+    flat = {}
+
+    def walk(items):
+        for item in items:
+            if "features" in item:
+                walk(item["features"])
+            elif item.get("property"):
+                flat.setdefault(item["property"], item)
+
+    walk((device.get("definition") or {}).get("exposes") or [])
+    return flat
+
+
+def set_attributes(friendly_name, payload, timeout=10):
+    """Publish a settings payload to a device.
+
+    Values are validated against the device's own exposes before they get here,
+    which is what catches the realistic failures.
+    """
+    # ponytail: fire and forget, no state echo comparison. Add one if writes
+    # ever start silently not applying.
+    client = _client()
+    client.loop_start()
+    try:
+        client.publish(f"{BASE_TOPIC}/{friendly_name}/set", json.dumps(payload)).wait_for_publish(timeout)
+    finally:
+        client.loop_stop()
+        client.disconnect()
 
 
 def rename(old_name, new_name, timeout=20):
@@ -92,5 +124,5 @@ def rename(old_name, new_name, timeout=20):
 
 
 if __name__ == "__main__":
-    for ieee, name in sorted(paired_devices().items(), key=lambda item: item[1]):
-        print(f"{ieee}  {name}")
+    for ieee, device in sorted(paired_devices().items(), key=lambda item: item[1]["friendly_name"]):
+        print(f"{ieee}  {device['friendly_name']}")

@@ -21,10 +21,11 @@ ZHA device:
 4. Gives the new device the old device's Home Assistant area.
 5. Renames the new entities to stable ids derived from the canonical name.
 6. Renames the device in Zigbee2MQTT to its canonical name.
-7. Repoints every literal `entity_id` reference in `automations.yaml`,
+7. Copies the old device's settings across to Zigbee2MQTT.
+8. Repoints every literal `entity_id` reference in `automations.yaml`,
    `scripts.yaml`, `scenes.yaml` and the Lovelace storage files at the new
    entity ids, backing every file up first.
-8. Reloads the automation, script and scene domains, so no restart is needed.
+9. Reloads the automation, script and scene domains, so no restart is needed.
 
 **Dry run is the default.** Nothing is modified unless `--live` is passed.
 
@@ -168,13 +169,43 @@ MQTT connection details come from `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER` and
 | `ha_ws_call.py` | Websocket helper, copied into the HA container to run |
 | `z2m.py` | Zigbee2MQTT bridge queries and device renames |
 | `rewrite.py` | Token-aware entity_id reference rewriting, with backups |
+| `settings.py` | ZHA to Z2M settings map and value translation |
 | `naming.py` | Canonical `<Area> <Location> <Use>` derivation |
 
-`naming.py` and `rewrite.py` both run their own self-checks when executed
+`naming.py`, `rewrite.py` and `settings.py` all run their own self-checks when executed
 directly, which is where the logic worth breaking lives.
 
-## Deliberately out of scope
+## Settings migration
 
-Syncing a device's ZHA configuration (reporting intervals, bind settings) into
-Zigbee2MQTT. This was dropped during scoping. See the TODO if it is ever
-revisited.
+A re-paired device comes up on Zigbee2MQTT with factory defaults, so its
+settings are copied across from ZHA as part of the migration. Only the Inovelli
+VZM31-SN is mapped, that being the bulk of this migration; any other model is
+reported as having no settings map rather than quietly skipped.
+
+The map lives in `settings.py`, keyed by the ZHA **attribute** name taken from
+the tail of the entity's `unique_id`. It is deliberately not keyed by
+entity_id, because on a real VZM31-SN the entity ids cannot be trusted: three
+of them are literally called `..._none`, and the entity whose id ends
+`_button_delay` is actually the local dimming up speed, mislabelled by a ZHA
+quirk. The unique_id tail is the attribute the device itself reports.
+
+Values are not blindly copied. Each entry says how to convert:
+
+| Rule | Meaning |
+| --- | --- |
+| `number` | copy across as an integer |
+| `text` | copy across as a string, the wording already matches |
+| `index` | the ZHA number is an index into the Z2M enum's values |
+| `{...}` | an explicit ZHA value to Z2M value translation |
+
+The `index` and translation rules matter more than they look. Z2M's
+`buttonDelay` is the enum `0ms`..`900ms`, so ZHA's `5` means `500ms`, not `5`.
+`onOffLedMode` is `All`/`One`, so a raw boolean copy is rejected outright. And
+both `relayClick` and `doubleTapClearNotifications` are phrased as "disable X"
+in ZHA while Z2M names the parameter rather than the effect, so the polarity
+has to be read off the actual Z2M value text.
+
+Every planned write is checked against the target device's own `exposes`
+definition before it is sent, so an out of range number, an enum value that
+does not exist, or a read-only attribute is reported rather than published and
+silently dropped. Anything with no mapping is reported with the reason.

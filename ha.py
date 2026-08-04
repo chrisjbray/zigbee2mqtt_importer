@@ -92,6 +92,13 @@ def mqtt_device_by_ieee(all_devices, ieee):
     return None
 
 
+def states():
+    """Current state of every entity, keyed by entity_id."""
+    request = urllib.request.Request(f"{BASE_URL}/api/states", headers={"Authorization": f"Bearer {token()}"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return {entity["entity_id"]: entity["state"] for entity in json.load(response)}
+
+
 def call_service(domain, service, payload):
     """POST to the REST service endpoint, raising on any non-2xx response."""
     request = urllib.request.Request(
