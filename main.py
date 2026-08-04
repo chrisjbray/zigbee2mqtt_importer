@@ -252,13 +252,22 @@ def build_plan(ieee, zha_info, z2m_device, overrides_path, history_days):
             for hit in unpaired_references
             if hit["entity_id"] == old["entity_id"]
         ]
+        # Only worth naming a likely counterpart when something actually
+        # refers to the old entity, otherwise it is noise on a dead entity.
+        suggestion = ""
+        if used_by:
+            close = naming.closest_entity_id(old["entity_id"], [new["entity_id"] for new in new_entities])
+            if close:
+                suggestion = f"; {close[0]} looks related, confirm and apply by hand"
+
         needs_review(
             "%s: old ZHA entity %s has %s matching Z2M entity, references to it cannot "
-            "be repointed automatically (%s)",
+            "be repointed automatically (%s)%s",
             ieee,
             old["entity_id"],
             "no" if candidate_count == 0 else f"{candidate_count} ambiguous",
             "referenced in " + ", ".join(used_by) if used_by else "not referenced anywhere, safe to ignore",
+            suggestion,
         )
 
     taken = {entity["entity_id"] for entity in all_entities}

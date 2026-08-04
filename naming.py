@@ -9,6 +9,7 @@ working directory is the escape hatch: a normalised-IEEE -> canonical-name map
 that always wins over the guess.
 """
 
+import difflib
 import json
 import os
 import re
@@ -60,6 +61,34 @@ _HELP = (
     "and is ignored: correct it if it is wrong, then delete that prefix to confirm "
     "it. Format: <Area> <Location> <Use>"
 )
+
+
+def closest_entity_id(entity_id, candidates, cutoff=0.6):
+    """The candidate entity_id that looks most like this one, if any is close.
+
+    Only ever used to name a likely counterpart in the review log; a match
+    across integrations is never applied automatically. ZHA and Z2M can name
+    the same physical sensor differently, so the trailing token is dropped
+    before comparing: ZHA calls a sensor `..._motion` where Z2M's converter for
+    the same hardware calls it `..._occupancy`. Candidates are restricted to
+    the same domain, which is what separates the occupancy binary_sensor from
+    the battery sensor once both have been stripped to the same stem.
+    """
+    domain, _, _ = entity_id.partition(".")
+
+    def stem(value):
+        return value.split(".", 1)[-1].rsplit("_", 1)[0]
+
+    target = stem(entity_id)
+    best, score = None, 0.0
+    for candidate in candidates:
+        if not candidate.startswith(f"{domain}."):
+            continue
+        ratio = difflib.SequenceMatcher(None, target, stem(candidate)).ratio()
+        if ratio > score:
+            best, score = candidate, ratio
+
+    return (best, score) if best and score >= cutoff else None
 
 
 def load_overrides(path):
@@ -129,6 +158,23 @@ def _self_check():
     )
     assert still_a_guess[0] == "Garage Hot Water Solar Pump"
     assert still_a_guess[1]
+    # The real case: ZHA exposed this sensor as motion, Z2M's converter for the
+    # same hardware exposes it as occupancy, so no exact match exists. The
+    # battery sensor strips to the same stem and is only ruled out by domain.
+    suggestion = closest_entity_id(
+        "binary_sensor.closet_motion_sensor_motion",
+        [
+            "sensor.garage_closet_motion_battery",
+            "binary_sensor.garage_closet_motion_occupancy",
+            "sensor.garage_closet_motion_linkquality",
+        ],
+    )
+    assert suggestion is not None
+    assert suggestion[0] == "binary_sensor.garage_closet_motion_occupancy", suggestion
+
+    # Nothing related at all stays unsuggested rather than guessing.
+    assert closest_entity_id("binary_sensor.front_door_contact", ["binary_sensor.kitchen_fan_state"]) is None
+
     print("naming self-check OK")
 
 
