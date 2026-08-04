@@ -2,8 +2,8 @@
 
 ## Build
 
-- [ ] Periodic ZHA device snapshot, with the already-migrated exclusion filter
-- [ ] IEEE normalisation and ZHA/Z2M matching
+- [x] Periodic ZHA device snapshot, with the already-migrated exclusion filter
+- [x] IEEE normalisation and ZHA/Z2M matching
 - [x] Canonical `[Area] [Location] [Use]` name derivation, with overrides
 - [x] Home Assistant registry operations (rename, disable, area, entity id)
 - [ ] Token-aware entity_id reference rewriting, with per-run backups
