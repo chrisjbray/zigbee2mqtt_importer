@@ -452,24 +452,44 @@ def execute(plan, workdir, run_id, dry_run):
     if not dry_run:
         ha.update_device(plan["new_device_id"], area_id=zha_info["area_id"])
 
-    # (e) Give the new entities stable ids derived from the canonical name.
-    for _old, new, target in plan["renames"]:
-        if new["entity_id"] == target:
-            logger.info("entity id %s is already correct, nothing to rename", target)
-            continue
-        logger.info("%srename entity id: %s -> %s", prefix, new["entity_id"], target)
-        if not dry_run:
-            ha.update_entity_id(new["entity_id"], target)
+    # (e, f) Final canonical Z2M name, which also gives the device its entity
+    # ids. Renaming with `homeassistant_rename` republishes the discovery
+    # topics, so Home Assistant recreates every one of the device's entities
+    # named after the canonical name. Renaming entities individually only ever
+    # reached the ones that paired with an old ZHA entity, and left the rest
+    # stuck with the raw `0x<ieee>` ids MQTT discovery first gave them.
+    for _old, _new, target in plan["renames"]:
+        logger.info("%sexpect entity id %s", prefix, target)
 
-    # (f) Final canonical Z2M name.
     if plan["intermediate_name"] == plan["canonical"]:
         logger.info("Z2M name is already the canonical %r, nothing to rename", plan["canonical"])
     else:
         logger.info(
-            "%srename in Z2M: %r -> %r (canonical)", prefix, plan["intermediate_name"], plan["canonical"]
+            "%srename in Z2M: %r -> %r (canonical, recreating entities)",
+            prefix,
+            plan["intermediate_name"],
+            plan["canonical"],
         )
         if not dry_run:
-            z2m.rename(plan["intermediate_name"], plan["canonical"], ieee_address=address)
+            z2m.rename(
+                plan["intermediate_name"],
+                plan["canonical"],
+                ieee_address=address,
+                homeassistant_rename=True,
+            )
+            # Home Assistant recreates the entities asynchronously, and the
+            # config rewrite below points at the ids predicted here, so make
+            # sure they actually turned up rather than assuming it.
+            time.sleep(10)
+            live = {entity["entity_id"] for entity in ha.entities()}
+            for _old, _new, target in plan["renames"]:
+                if target not in live:
+                    needs_review(
+                        "%s: expected entity %s after the canonical rename but it does not exist; "
+                        "references repointed at it will be dangling",
+                        plan["ieee"],
+                        target,
+                    )
 
     # (g) Copy the old device's settings across.
     for attribute, value in sorted(plan["settings_writes"].items()):

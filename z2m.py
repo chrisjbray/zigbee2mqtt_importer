@@ -158,7 +158,7 @@ def already_named(ieee_address, name, timeout=15):
     return False
 
 
-def rename(old_name, new_name, timeout=20, ieee_address=None):
+def rename(old_name, new_name, timeout=20, ieee_address=None, homeassistant_rename=False):
     """Rename a device's friendly_name, verified against the bridge response.
 
     A rename to the name the device already has is not an error, it is nothing
@@ -166,9 +166,11 @@ def rename(old_name, new_name, timeout=20, ieee_address=None):
     use", which used to abort the whole migration part way through and leave it
     to be retried from the start on every pass.
 
-    `homeassistant_rename` is deliberately left at its default of false: this
-    tool renames the Home Assistant entities itself, and letting Z2M do it too
-    would fight over the same entity ids.
+    `homeassistant_rename` clears and republishes the device's discovery topics
+    before applying the rename, which makes Home Assistant delete and recreate
+    every one of the device's entities with an id derived from the new name.
+    That is how the canonical rename gives the whole device clean entity ids,
+    rather than only the ones that happened to pair with an old ZHA entity.
     """
     if old_name == new_name:
         return None
@@ -177,7 +179,10 @@ def rename(old_name, new_name, timeout=20, ieee_address=None):
         response = _await_message(
             RENAME_RESPONSE_TOPIC,
             timeout,
-            publish=(RENAME_REQUEST_TOPIC, {"from": old_name, "to": new_name}),
+            publish=(
+                RENAME_REQUEST_TOPIC,
+                {"from": old_name, "to": new_name, "homeassistant_rename": homeassistant_rename},
+            ),
         )
     except TimeoutError:
         # Zigbee2MQTT drops its broker connection occasionally, which loses the
