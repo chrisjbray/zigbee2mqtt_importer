@@ -5,7 +5,7 @@
 - [ ] Periodic ZHA device snapshot, with the already-migrated exclusion filter
 - [ ] IEEE normalisation and ZHA/Z2M matching
 - [x] Canonical `[Area] [Location] [Use]` name derivation, with overrides
-- [ ] Home Assistant registry operations (rename, disable, area, entity id)
+- [x] Home Assistant registry operations (rename, disable, area, entity id)
 - [ ] Token-aware entity_id reference rewriting, with per-run backups
 - [ ] Zigbee2MQTT device list polling and renames
 - [ ] Watcher loop, dry run by default, per-run rollback scripts
