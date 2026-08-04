@@ -65,15 +65,22 @@ Against the 96 devices currently eligible on this network: 43 derive cleanly,
 30 produce a flagged guess, 23 cannot be derived at all (mostly devices with no
 area set).
 
-To migrate a device whose name does not derive cleanly, put the name you want
-in `workdir/name_overrides.json`, keyed by normalised IEEE address. An override
-always wins and is never treated as uncertain:
+You do not have to write that file by hand. Whenever a name cannot be derived
+with confidence, the entry is written to `workdir/name_overrides.json` for you,
+prefilled with the best guess and keyed by normalised IEEE address:
 
 ```json
 {
-  "000d6f0042e91b73": "[Stairway] [Ceiling] [Motion]"
+  "_help": "... how to confirm an entry ...",
+  "0011223344556677": "TODO confirm: [Stairway] [Ceiling] [Motion]"
 }
 ```
+
+Correct the value if it is wrong, then delete the `TODO confirm: ` prefix. That
+prefix is what keeps the entry inert: while it is there the name still counts
+as unconfirmed and the device will not migrate, so the tool can never end up
+acting on its own guess. A confirmed entry always wins over derivation and is
+never treated as uncertain.
 
 ## Detecting a newly joined device
 

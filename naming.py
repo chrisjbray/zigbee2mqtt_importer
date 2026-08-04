@@ -52,6 +52,16 @@ def derive(zha_name, area_name):
     )
 
 
+TEMPLATE_PREFIX = "TODO confirm: "
+
+_HELP = (
+    "Canonical device names, keyed by IEEE address with no 0x and no colons. "
+    f"A value still carrying the '{TEMPLATE_PREFIX}' prefix is this tool's own guess "
+    "and is ignored: correct it if it is wrong, then delete that prefix to confirm "
+    "it. Format: [Area] [Location] [Use]"
+)
+
+
 def load_overrides(path):
     """Load the normalised-IEEE -> canonical-name override map, if present."""
     if not os.path.exists(path):
@@ -61,10 +71,29 @@ def load_overrides(path):
 
 
 def canonical_for(ieee, zha_name, area_name, overrides):
-    """Resolve the canonical name, preferring an explicit override."""
-    if ieee in overrides:
-        return overrides[ieee], None
+    """Resolve the canonical name, preferring a confirmed override."""
+    override = overrides.get(ieee)
+    if override and not override.startswith(TEMPLATE_PREFIX):
+        return override, None
     return derive(zha_name, area_name)
+
+
+def write_template(path, ieee, proposed):
+    """Leave a prefilled entry so a name only has to be edited, not written.
+
+    Returns True if one was added, False if it was already there. The prefix is
+    what stops the tool from later acting on its own guess.
+    """
+    overrides = load_overrides(path)
+    if ieee in overrides:
+        return False
+
+    overrides.setdefault("_help", _HELP)
+    overrides[ieee] = TEMPLATE_PREFIX + proposed
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as handle:
+        json.dump(overrides, handle, indent=2, sort_keys=True)
+    return True
 
 
 def _self_check():
@@ -87,11 +116,19 @@ def _self_check():
     assert derive("Weather", "kg Closet")[0] is None
     assert derive("Anything", "")[0] is None
 
-    # An override always wins and is never uncertain.
+    # A confirmed override always wins and is never uncertain.
     assert canonical_for("abc", "Hot Water Solar Pump", "Garage", {"abc": "[Garage] [Solar] [Pump]"}) == (
         "[Garage] [Solar] [Pump]",
         None,
     )
+
+    # An unconfirmed template must NOT be acted on, or the tool would end up
+    # confirming its own guess.
+    still_a_guess = canonical_for(
+        "abc", "Hot Water Solar Pump", "Garage", {"abc": TEMPLATE_PREFIX + "[Garage] [Solar] [Pump]"}
+    )
+    assert still_a_guess[0] == "[Garage] [Hot] [Water Solar Pump]"
+    assert still_a_guess[1]
     print("naming self-check OK")
 
 

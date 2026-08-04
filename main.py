@@ -117,27 +117,27 @@ def retired_entity_id(entity):
     return f"{domain}.{MIGRATED_PREFIX}{object_id}"
 
 
-def build_plan(ieee, zha_info, z2m_name, overrides):
+def build_plan(ieee, zha_info, z2m_name, overrides_path):
     """Work out everything that would change, without changing anything."""
-    canonical, uncertainty = naming.canonical_for(ieee, zha_info["name"], zha_info["area_name"], overrides)
-    if canonical is None:
+    canonical, uncertainty = naming.canonical_for(
+        ieee, zha_info["name"], zha_info["area_name"], naming.load_overrides(overrides_path)
+    )
+    if uncertainty or canonical is None:
+        # Write the entry out prefilled, so confirming it is an edit rather
+        # than hand-writing JSON. The prefix keeps it inert until then.
+        proposed = canonical or f"[{zha_info['area_name'] or '<Area>'}] [<Location>] [<Use>]"
+        added = naming.write_template(overrides_path, ieee, proposed)
         needs_review(
-            "%s (ZHA %r, Z2M %r): cannot derive a canonical name (%s). "
-            "Add an entry to workdir/name_overrides.json to migrate it.",
+            "%s (ZHA %r, Z2M %r): %s. %s %s as %r, correct it if needed and remove the "
+            "%r prefix to confirm, then it will migrate.",
             ieee,
             zha_info["name"],
             z2m_name,
             uncertainty,
-        )
-        return None
-    if uncertainty:
-        needs_review(
-            "%s (ZHA %r): name derivation is uncertain, proposing %r (%s). "
-            "Confirm it by adding it to workdir/name_overrides.json, then it will migrate.",
-            ieee,
-            zha_info["name"],
-            canonical,
-            uncertainty,
+            "wrote it to" if added else "an entry is already waiting in",
+            overrides_path,
+            proposed,
+            naming.TEMPLATE_PREFIX,
         )
         return None
 
@@ -382,7 +382,7 @@ def run_once(args, workdir):
 
     completed_path = os.path.join(workdir, "completed_migrations.json")
     completed = load_json(completed_path, {})
-    overrides = naming.load_overrides(os.path.join(workdir, "name_overrides.json"))
+    overrides_path = os.path.join(workdir, "name_overrides.json")
 
     paired = z2m.paired_devices()
     candidates = sorted(set(paired) & set(snapshot) - set(completed))
@@ -393,7 +393,7 @@ def run_once(args, workdir):
     logger.info("%s device(s) present in both Z2M and the ZHA snapshot", len(candidates))
     for ieee in candidates:
         run_id = time.strftime("%Y%m%d-%H%M%S")
-        plan = build_plan(ieee, snapshot[ieee], paired[ieee], overrides)
+        plan = build_plan(ieee, snapshot[ieee], paired[ieee], overrides_path)
         if plan is None:
             continue
 
