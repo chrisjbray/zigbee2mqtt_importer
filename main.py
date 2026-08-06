@@ -303,10 +303,20 @@ def build_plan(ieee, zha_info, z2m_device, overrides_path, history_days):
     # name something else already has. Renaming straight to the old ZHA name
     # fails outright when another device in Zigbee2MQTT already goes by it,
     # which is common when the old ZHA names were never unique to begin with.
-    # When the device is already canonically named there is nothing to do, and
-    # collapsing the intermediate onto the canonical name lets the no-op guard
-    # in `z2m.rename` skip both renames.
-    intermediate = canonical if z2m_name == canonical else zha_info["name"] + INTERMEDIATE_SUFFIX
+    #
+    # This never collapses onto canonical even when z2m_name already equals
+    # it. That collapse used to be here as an optimisation ("nothing to
+    # rename"), but z2m.rename()'s own old_name==new_name guard means a
+    # collapsed intermediate silently skips the LATER canonical rename too -
+    # and that later rename is the one carrying homeassistant_rename=True,
+    # which is what makes Home Assistant recreate every entity under a clean
+    # id. Skipping it left every entity that never paired with an old ZHA
+    # entity (i.e. most of them - anything ZHA never exposed) stuck on its
+    # raw `0x<ieee>_*` MQTT-discovery id forever, even though the device's
+    # own Z2M name looked perfectly correct. Always using a genuinely
+    # different intermediate guarantees the canonical rename is always a
+    # real string change, so it always fires.
+    intermediate = zha_info["name"] + INTERMEDIATE_SUFFIX
 
     return {
         "ieee": ieee,
@@ -461,35 +471,35 @@ def execute(plan, workdir, run_id, dry_run):
     for _old, _new, target in plan["renames"]:
         logger.info("%sexpect entity id %s", prefix, target)
 
-    if plan["intermediate_name"] == plan["canonical"]:
-        logger.info("Z2M name is already the canonical %r, nothing to rename", plan["canonical"])
-    else:
-        logger.info(
-            "%srename in Z2M: %r -> %r (canonical, recreating entities)",
-            prefix,
+    # intermediate_name always carries INTERMEDIATE_SUFFIX now (see
+    # build_plan), so it can never equal canonical - this rename always fires
+    # and always carries homeassistant_rename=True.
+    logger.info(
+        "%srename in Z2M: %r -> %r (canonical, recreating entities)",
+        prefix,
+        plan["intermediate_name"],
+        plan["canonical"],
+    )
+    if not dry_run:
+        z2m.rename(
             plan["intermediate_name"],
             plan["canonical"],
+            ieee_address=address,
+            homeassistant_rename=True,
         )
-        if not dry_run:
-            z2m.rename(
-                plan["intermediate_name"],
-                plan["canonical"],
-                ieee_address=address,
-                homeassistant_rename=True,
-            )
-            # Home Assistant recreates the entities asynchronously, and the
-            # config rewrite below points at the ids predicted here, so make
-            # sure they actually turned up rather than assuming it.
-            time.sleep(10)
-            live = {entity["entity_id"] for entity in ha.entities()}
-            for _old, _new, target in plan["renames"]:
-                if target not in live:
-                    needs_review(
-                        "%s: expected entity %s after the canonical rename but it does not exist; "
-                        "references repointed at it will be dangling",
-                        plan["ieee"],
-                        target,
-                    )
+        # Home Assistant recreates the entities asynchronously, and the
+        # config rewrite below points at the ids predicted here, so make
+        # sure they actually turned up rather than assuming it.
+        time.sleep(10)
+        live = {entity["entity_id"] for entity in ha.entities()}
+        for _old, _new, target in plan["renames"]:
+            if target not in live:
+                needs_review(
+                    "%s: expected entity %s after the canonical rename but it does not exist; "
+                    "references repointed at it will be dangling",
+                    plan["ieee"],
+                    target,
+                )
 
     # (g) Copy the old device's settings across.
     for attribute, value in sorted(plan["settings_writes"].items()):
