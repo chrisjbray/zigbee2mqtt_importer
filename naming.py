@@ -13,6 +13,7 @@ import difflib
 import json
 import os
 import re
+import tempfile
 
 
 def slug(text):
@@ -54,12 +55,16 @@ def derive(zha_name, area_name):
 
 
 TEMPLATE_PREFIX = "TODO confirm: "
+ZHA_NAME_SUFFIX = "__zha_name"
 
 _HELP = (
     "Canonical device names, keyed by IEEE address with no 0x and no colons. "
     f"A value still carrying the '{TEMPLATE_PREFIX}' prefix is this tool's own guess "
     "and is ignored: correct it if it is wrong, then delete that prefix to confirm "
-    "it. Format: <Area> <Location> <Use>"
+    "it. Format: <Area> <Location> <Use>. A pending entry also gets a sibling key "
+    f"'<ieee>{ZHA_NAME_SUFFIX}' showing the original ZHA device name it was guessed "
+    "from - reference only, not read by the tool, safe to leave in place or delete "
+    "once confirmed."
 )
 
 
@@ -107,11 +112,16 @@ def canonical_for(ieee, zha_name, area_name, overrides):
     return derive(zha_name, area_name)
 
 
-def write_template(path, ieee, proposed):
+def write_template(path, ieee, proposed, zha_name=None):
     """Leave a prefilled entry so a name only has to be edited, not written.
 
     Returns True if one was added, False if it was already there. The prefix is
-    what stops the tool from later acting on its own guess.
+    what stops the tool from later acting on its own guess. zha_name, if given,
+    is written to a separate sibling key rather than folded into the guessed
+    name itself - canonical_for() treats any override not starting with
+    TEMPLATE_PREFIX as final and confirmed, so embedding it in the same string
+    would risk it surviving into a live device name if someone only strips the
+    prefix and not a trailing annotation too.
     """
     overrides = load_overrides(path)
     if ieee in overrides:
@@ -119,6 +129,8 @@ def write_template(path, ieee, proposed):
 
     overrides.setdefault("_help", _HELP)
     overrides[ieee] = TEMPLATE_PREFIX + proposed
+    if zha_name:
+        overrides[ieee + ZHA_NAME_SUFFIX] = zha_name
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as handle:
         json.dump(overrides, handle, indent=2, sort_keys=True)
@@ -174,6 +186,22 @@ def _self_check():
 
     # Nothing related at all stays unsuggested rather than guessing.
     assert closest_entity_id("binary_sensor.front_door_contact", ["binary_sensor.kitchen_fan_state"]) is None
+
+    # write_template() records the old ZHA name under a sibling key, not
+    # folded into the guessed name itself, and canonical_for() must keep
+    # ignoring that sibling key when resolving the real override.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "name_overrides.json")
+        added = write_template(path, "abc", "Garage Hot Water Solar Pump", zha_name="Hot Water Solar Pump")
+        assert added
+        overrides = load_overrides(path)
+        assert overrides["abc"] == TEMPLATE_PREFIX + "Garage Hot Water Solar Pump"
+        assert overrides["abc" + ZHA_NAME_SUFFIX] == "Hot Water Solar Pump"
+        # The sibling key sitting in the same dict must not change how the
+        # real ieee's own override resolves.
+        resolved = canonical_for("abc", "Hot Water Solar Pump", "Garage", overrides)
+        assert resolved[0] == "Garage Hot Water Solar Pump"
+        assert resolved[1]  # still an unconfirmed guess
 
     print("naming self-check OK")
 

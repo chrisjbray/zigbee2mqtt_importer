@@ -206,7 +206,7 @@ def build_plan(ieee, zha_info, z2m_device, overrides_path, history_days):
         # Write the entry out prefilled, so confirming it is an edit rather
         # than hand-writing JSON. The prefix keeps it inert until then.
         proposed = canonical or f"{zha_info['area_name'] or '<Area>'} <Location> <Use>"
-        added = naming.write_template(overrides_path, ieee, proposed)
+        added = naming.write_template(overrides_path, ieee, proposed, zha_name=zha_info["name"])
         needs_review(
             "%s (ZHA %r, Z2M %r): %s. %s %s as %r, correct it if needed and remove the "
             "%r prefix to confirm, then it will migrate.",
