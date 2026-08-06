@@ -173,8 +173,12 @@ def plan_settings(old_entities, z2m_device, history_days):
     return writes, notes + plan_notes
 
 
-def plan_triggers(ieee, z2m_device):
-    """Work out which action trigger discovery configs are still missing."""
+def plan_triggers(ieee, z2m_device, canonical):
+    """Work out which action trigger discovery configs are missing or stale.
+
+    These are published after the canonical rename, so they are built for the
+    name the device will have by then, not the one it still has here.
+    """
     bridge = z2m.info()
     coordinator = next(
         (device["ieee_address"] for device in z2m.devices() if device.get("type") == "Coordinator"),
@@ -193,6 +197,7 @@ def plan_triggers(ieee, z2m_device):
         coordinator,
         bridge.get("version", "unknown"),
         bridge["config"]["mqtt"]["base_topic"],
+        canonical,
     )
 
 
@@ -233,7 +238,7 @@ def build_plan(ieee, zha_info, z2m_device, overrides_path, history_days):
 
     all_old_entities = ha.device_entities(all_entities, zha_info["ha_device_id"])
     settings_writes, settings_notes = plan_settings(all_old_entities, z2m_device, history_days)
-    trigger_writes = plan_triggers(ieee, z2m_device)
+    trigger_writes = plan_triggers(ieee, z2m_device, canonical)
     for note in settings_notes:
         needs_review("%s settings: %s", ieee, note)
 
@@ -510,8 +515,10 @@ def execute(plan, workdir, run_id, dry_run):
         logger.info("no settings to copy across")
 
     # Register every action the device can emit as a Home Assistant trigger,
-    # so they are all selectable without having to perform each gesture first.
-    # This only ever writes discovery config topics, never the action topic.
+    # so they are all selectable without having to perform each gesture first,
+    # and repoint any that Zigbee2MQTT left on the pre-rename name. This has
+    # to run after the canonical rename, and only ever writes discovery config
+    # topics, never the action topic.
     for topic, _payload in plan["trigger_writes"]:
         logger.info("%sregister trigger %s", prefix, topic.rsplit("/", 2)[-2])
     if plan["trigger_writes"]:

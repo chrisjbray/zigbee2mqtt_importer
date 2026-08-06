@@ -189,9 +189,24 @@ triggers are not selectable in Home Assistant at all: a VZM31-SN advertises 21
 action values and on this network they typically have about five.
 
 Migration is the right moment to fix that, so every advertised action value
-that has no discovery config gets one published directly. Values that already
-have a config are left alone, which makes this idempotent and avoids replacing
-a real config with a reconstructed one.
+that has no discovery config gets one published directly.
+
+A value that already has a config keeps it rather than being rebuilt, which
+avoids replacing a real config with a reconstructed one. It does not keep the
+device identity in it, though. Zigbee2MQTT writes these configs once, on the
+first real button press, and never rewrites them afterwards — not even when
+the device is renamed. So every config a device accumulated before its
+migration still carries the old `device.name` and still points its `topic` at
+`zigbee2mqtt/<old name>/action`, which nothing publishes to once the canonical
+rename has landed. That leaves those triggers dead, and leaves Home Assistant
+naming the whole device after whichever stale block it read last, even though
+every entity id came out clean.
+
+Both fields are therefore rewritten onto the canonical name in place, keeping
+the rest of the payload. The configs are planned for the name the device will
+have after the rename, not the one it still has while the plan is built, and
+they are published after the rename for the same reason. A config that already
+agrees is left completely untouched, so this stays idempotent.
 
 **Only the discovery config topic is ever published.** The device's own
 `zigbee2mqtt/<name>/action` topic is never touched: that one carries real

@@ -12,6 +12,9 @@
 - [x] Wired into the shared `run.sh` supervisor as `importer()`
 - [x] Settings migration from ZHA to Z2M for the Inovelli VZM31-SN
 - [x] Pre-publish Home Assistant action trigger discovery configs
+- [x] Repoint action trigger configs onto the canonical name, so the ones
+      Zigbee2MQTT left on the pre-rename name stop killing the triggers and
+      naming the Home Assistant device after the raw IEEE
 
 ## Open
 

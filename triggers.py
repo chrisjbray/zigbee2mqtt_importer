@@ -39,20 +39,7 @@ def action_values(exposes):
     return list(action.get("values") or [])
 
 
-def discovered_values(retained):
-    """The action values that already have a discovery config on the broker.
-
-    `retained` maps topic -> payload for the device's existing configs.
-    """
-    found = set()
-    for topic in retained:
-        name = topic.rsplit("/", 2)[-2] if topic.endswith("/config") else ""
-        if name.startswith("action_"):
-            found.add(name[len("action_") :])
-    return found
-
-
-def device_block(z2m_device, coordinator_ieee, template=None):
+def device_block(z2m_device, coordinator_ieee, friendly_name, template=None):
     """The `device` block, built from the bridge's own view of the device."""
     definition = z2m_device.get("definition") or {}
     block = {
@@ -60,7 +47,7 @@ def device_block(z2m_device, coordinator_ieee, template=None):
         "manufacturer": definition.get("vendor"),
         "model": definition.get("description"),
         "model_id": definition.get("model"),
-        "name": z2m_device["friendly_name"],
+        "name": friendly_name,
         "via_device": f"zigbee2mqtt_bridge_{coordinator_ieee}",
     }
     if z2m_device.get("software_build_id"):
@@ -90,30 +77,44 @@ def encode(payload):
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
-def plan(z2m_device, exposes, retained, coordinator_ieee, z2m_version, base_topic):
-    """Return [(topic, payload)] for the action values that have no config yet.
+def plan(z2m_device, exposes, retained, coordinator_ieee, z2m_version, base_topic, friendly_name):
+    """Return [(topic, payload)] for action configs that are missing or stale.
 
-    Values that already have a config are left alone: a real one published by
-    Zigbee2MQTT after an actual button press is authoritative, and re-publishing
-    would only risk replacing it with something less complete.
+    `friendly_name` is the name the device will answer to once the migration's
+    canonical rename has landed, which is not the name it still has while this
+    is being planned. Both the `device` block and the action `topic` embed it,
+    so building them from `z2m_device["friendly_name"]` would stamp the
+    pre-rename name into configs that are published after the rename.
+
+    Zigbee2MQTT publishes a config the first time an action actually fires and
+    then never rewrites it, not even on a rename. So a config left over from
+    before the migration still names the device by its old identity and points
+    at an action topic nothing publishes to any more, which leaves the triggers
+    dead and Home Assistant naming the whole device after the stale block.
+    Those configs are authoritative about everything except the identity the
+    rename changed: keep the payload, repoint the two fields, and leave a
+    config that already agrees untouched.
     """
     values = action_values(exposes)
     if not values:
         return []
 
-    already = discovered_values(retained)
     template = next(iter(retained.values()), {}).get("device") if retained else None
-    device = device_block(z2m_device, coordinator_ieee, template)
+    device = device_block(z2m_device, coordinator_ieee, friendly_name, template)
     origin = {"name": "Zigbee2MQTT", "sw": z2m_version, "url": "https://www.zigbee2mqtt.io"}
+    action_topic = f"{base_topic}/{friendly_name}/action"
 
-    return [
-        (
-            config_topic(z2m_device["ieee_address"], value),
-            build_payload(value, z2m_device["friendly_name"], device, origin, base_topic),
-        )
-        for value in values
-        if value not in already
-    ]
+    writes = []
+    for value in values:
+        topic = config_topic(z2m_device["ieee_address"], value)
+        existing = retained.get(topic)
+        if existing is None:
+            writes.append((topic, build_payload(value, friendly_name, device, origin, base_topic)))
+            continue
+        repointed = dict(existing, device=device, topic=action_topic)
+        if repointed != existing:
+            writes.append((topic, repointed))
+    return writes
 
 
 def _self_check():
@@ -141,9 +142,10 @@ def _self_check():
         '"topic":"zigbee2mqtt/Example Switch/action","type":"action"}'
     )
 
-    writes = plan(device_entry, exposes, {real_topic: real}, "0x00124b00a17f52d9", "2.7.1", "zigbee2mqtt")
+    args = (device_entry, exposes, {real_topic: real}, "0x00124b00a17f52d9", "2.7.1", "zigbee2mqtt")
+    writes = plan(*args, "Example Switch")
 
-    # up_single already has a config, so only down_single is planned.
+    # up_single already has a config that agrees, so only down_single is planned.
     assert len(writes) == 1, writes
     topic, payload = writes[0]
     assert topic == "homeassistant/device_automation/0x6c5cb1fffe0a4c21/action_down_single/config"
@@ -153,17 +155,28 @@ def _self_check():
     rebuilt = build_payload(
         "up_single",
         device_entry["friendly_name"],
-        device_block(device_entry, "0x00124b00a17f52d9", real["device"]),
+        device_block(device_entry, "0x00124b00a17f52d9", device_entry["friendly_name"], real["device"]),
         {"name": "Zigbee2MQTT", "sw": "2.7.1", "url": "https://www.zigbee2mqtt.io"},
         "zigbee2mqtt",
     )
     assert encode(rebuilt) == encode(real), f"\n{encode(rebuilt)}\n{encode(real)}"
 
+    # Planning under the name the canonical rename will land on must repoint the
+    # stale leftover config rather than skip it, and must not stamp the device's
+    # current (pre-rename) name into the new one either.
+    renamed = dict(plan(*args, "kg Bedroom Desk Sconce"))
+    assert len(renamed) == 2, renamed
+    for config in renamed.values():
+        assert config["device"]["name"] == "kg Bedroom Desk Sconce", config
+        assert config["topic"] == "zigbee2mqtt/kg Bedroom Desk Sconce/action", config
+    # The repointed one keeps what only Zigbee2MQTT knew, and is not rebuilt.
+    assert renamed[real_topic]["device"]["hw_version"] == 1, renamed[real_topic]
+
     # The action topic must never appear as something we publish to.
     assert all(t.startswith(f"{DISCOVERY_PREFIX}/device_automation/") for t, _ in writes)
 
     # A device with no action expose plans nothing.
-    assert plan(device_entry, {}, {}, "0x0", "2.12.1", "zigbee2mqtt") == []
+    assert plan(device_entry, {}, {}, "0x0", "2.12.1", "zigbee2mqtt", "Example Switch") == []
 
     print("triggers self-check OK")
 
