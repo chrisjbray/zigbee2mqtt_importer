@@ -15,6 +15,8 @@
 - [x] Repoint action trigger configs onto the canonical name, so the ones
       Zigbee2MQTT left on the pre-rename name stop killing the triggers and
       naming the Home Assistant device after the raw IEEE
+- [x] `repoint.py`, the same repair for devices migrated before that landed
+      and for renames made outside this tool
 
 ## Open
 

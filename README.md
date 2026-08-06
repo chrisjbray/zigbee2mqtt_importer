@@ -175,9 +175,11 @@ MQTT connection details come from `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER` and
 | `settings.py` | ZHA to Z2M settings map and value translation |
 | `triggers.py` | Home Assistant action trigger discovery configs |
 | `naming.py` | Canonical `<Area> <Location> <Use>` derivation |
+| `repoint.py` | One-off repair for discovery configs left on an old name |
 
 `naming.py`, `rewrite.py`, `settings.py` and `triggers.py` all run their own self-checks when executed
-directly, which is where the logic worth breaking lives.
+directly, which is where the logic worth breaking lives. `repoint.py` runs its own with
+`--self-check`, since running it bare does real work.
 
 ## Action triggers
 
@@ -216,6 +218,34 @@ contract was taken from the Zigbee2MQTT source and is asserted in
 
 This is not model specific: it applies to anything with an `action` expose,
 including multi-button remotes and motion sensors.
+
+### Repairing devices renamed elsewhere
+
+A migration handles its own device. Anything renamed outside this tool — in the
+Zigbee2MQTT UI, say — hits the same problem with nothing to fix it, and so did
+every device migrated before the repointing existed. `repoint.py` is that
+repair, run against the whole mesh:
+
+```
+python3 repoint.py            # report what is stale, change nothing
+python3 repoint.py --live     # repoint it
+```
+
+It reads each device's configs and rewrites only `device.name` and `topic`, so
+a config that already agrees produces no write and re-running costs nothing.
+Rewriting every occurrence of the IEEE instead would be actively wrong:
+`unique_id` and `identifiers` are *supposed* to contain it, and are what tie a
+config to its existing Home Assistant entity. Replacing it there orphans the
+entity rather than renaming it.
+
+It subscribes per device, which is slow — a few seconds each — and that is
+deliberate. Subscribing to `homeassistant/#` once to sweep the whole mesh in a
+single pass is the obvious optimisation and it silently loses messages: the
+retained burst is thousands of messages and overruns the broker's queue for a
+QoS 0 subscriber, which reports no error and simply returns fewer configs than
+exist. Measured against one device, the wildcard read returned 80 of its 115
+configs and none of the 21 stale ones — so it reports a clean mesh whether or
+not the mesh is clean. It gave two false all-clears before the A/B caught it.
 
 ## Settings migration
 
