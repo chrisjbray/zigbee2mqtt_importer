@@ -17,6 +17,8 @@
       naming the Home Assistant device after the raw IEEE
 - [x] `repoint.py`, the same repair for devices migrated before that landed
       and for renames made outside this tool
+- [x] `backfill_triggers.py`, publishing the action configs Zigbee2MQTT never
+      wrote at all, for devices already migrated or paired outside this tool
 
 ## Open
 

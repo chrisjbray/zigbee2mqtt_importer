@@ -176,10 +176,12 @@ MQTT connection details come from `MQTT_HOST`, `MQTT_PORT`, `MQTT_USER` and
 | `triggers.py` | Home Assistant action trigger discovery configs |
 | `naming.py` | Canonical `<Area> <Location> <Use>` derivation |
 | `repoint.py` | One-off repair for discovery configs left on an old name |
+| `backfill_triggers.py` | Publish action configs Zigbee2MQTT never wrote |
 
 `naming.py`, `rewrite.py`, `settings.py` and `triggers.py` all run their own self-checks when executed
 directly, which is where the logic worth breaking lives. `repoint.py` runs its own with
-`--self-check`, since running it bare does real work.
+`--self-check`, since running it bare does real work. `backfill_triggers.py` has no
+self-check of its own: it is a thin driver over `triggers.plan()`, which has one.
 
 ## Action triggers
 
@@ -246,6 +248,32 @@ QoS 0 subscriber, which reports no error and simply returns fewer configs than
 exist. Measured against one device, the wildcard read returned 80 of its 115
 configs and none of the 21 stale ones — so it reports a clean mesh whether or
 not the mesh is clean. It gave two false all-clears before the A/B caught it.
+
+### Backfilling a device that is already migrated
+
+`repoint.py` repairs configs that exist and name the device wrongly.
+`backfill_triggers.py` is the other half: it publishes the ones that were never
+written at all. That covers a device migrated before this tool pre-published
+them, and a device paired outside the tool entirely.
+
+```
+python3 backfill_triggers.py                          # what is missing, mesh-wide
+python3 backfill_triggers.py --device "Hall Switch"   # one device, by name
+python3 backfill_triggers.py --vendor Inovelli        # one vendor
+python3 backfill_triggers.py --vendor Inovelli --live
+```
+
+Dry by default. It applies `triggers.plan()` under the name the device answers
+to now — outside a migration there is no pending rename to build for — so it
+both creates what is missing and repoints anything stale, and re-running it
+reports nothing to do.
+
+Run across this network it found 974 missing configs across 49 Inovelli
+switches, 34 of which had no action triggers at all.
+
+A full sweep takes several minutes, because it subscribes per device for the
+reason given above. Run it detached rather than under a timeout, and pass `-u`
+so its progress is not held in Python's output buffer.
 
 ## Settings migration
 
