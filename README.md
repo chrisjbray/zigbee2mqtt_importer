@@ -320,3 +320,34 @@ Every planned write is checked against the target device's own `exposes`
 definition before it is sent, so an out of range number, an enum value that
 does not exist, or a read-only attribute is reported rather than published and
 silently dropped. Anything with no mapping is reported with the reason.
+
+## Fixing newly enabled `0x...` entity ids
+
+When a disabled diagnostic such as `sensor.0x282c02bfffec4ff4_power_factor` is
+re-enabled in Home Assistant, its `entity_id` stays on the raw IEEE name even
+though `suggested_object_id` (e.g. `ohana_refrigerator_power_factor`) is already
+correct. HA never renames on re-enable - `entity_id` is sticky. The 208 disabled
+diagnostics (`linkquality`, `last_seen`, `power_factor`, `effect`, ...) are WONTFIX
+while disabled; this is for the ones you intentionally re-enable.
+
+Live fix on this host (proven 2026-08-08: `ohana_refrigerator_power_factor` kept
+history, now `0.96`):
+
+```
+# Dry-run: lists enabled 0x... that have a clean target (skips collisions)
+./fix_newly_enabled_entity_names.py
+# Fix one:
+./fix_newly_enabled_entity_names.py --live --only 0x282c02bfffec4ff4
+# Fix all non-colliding:
+./fix_newly_enabled_entity_names.py --live
+# Or under the shared venv:
+../venv/bin/python3 fix_newly_enabled_entity_names.py --live --only 0x282c...
+```
+
+Implementation: `config/entity_registry/update` over the HA websocket via
+`docker exec homeassistant` (history kept, no restart). Uses `--only` filtering
+for `--live` and reports `SKIP collision` when the clean id already exists (e.g.
+`sensor.0x00158d..._battery` -> `sensor.cb_bedroom_door_battery` already taken).
+See also `memories/2026-08-06-z2m_rename_leaves_trigger_configs_stale.md` for the
+trigger-name vs entity-id split that the importer fixes at migration time.
+
